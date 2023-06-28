@@ -38,15 +38,15 @@ fn get_chi2(bytes: &[u8]) -> f64 {
     for byte in bytes {
         let byte = usize::from(*byte);
         match byte {
-            65..=90 => count[(byte - 65)] += 1,
-            97..=122 => count[(byte - 97)] += 1,
+            65..=90 => count[byte - 65] += 1,
+            97..=122 => count[byte - 97] += 1,
             32..=126 | 9 | 10 | 13 => ignored += 1,
             _ => (),
         }
         if (65..=90).contains(&byte) {
-            count[(byte - 65)] += 1;
+            count[byte - 65] += 1;
         } else if (97..122).contains(&byte) {
-            count[(byte - 97)] += 1;
+            count[byte - 97] += 1;
         }
     }
     let mut chi2 = 0.0;
@@ -148,8 +148,6 @@ pub fn single_byte_key_decrypt(cipher: &[u8]) -> anyhow::Result<(f64, char, Vec<
             best_idx = 1;
         }
     }
-    // let same_letters = best[0].cand_plaintext.iter().zip(best[1].cand_plaintext.iter()).for_each(|(left, right))|
-    // );
     let ret = (
         best[best_idx].frequency_score,
         best[best_idx].cand_char,
@@ -159,7 +157,7 @@ pub fn single_byte_key_decrypt(cipher: &[u8]) -> anyhow::Result<(f64, char, Vec<
 }
 
 // Challenge 4
-pub fn detect_single_character_xor() -> (f64, char, Vec<u8>){
+pub fn detect_single_character_xor() -> (f64, char, Vec<u8>) {
     let lines = include_str!("challenge4-data.txt").lines();
     lines
         .map(|line| {

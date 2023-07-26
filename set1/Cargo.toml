@@ -8,5 +8,12 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.70"
 base64 = "0.21.0"
-bytes = "1.4.0"
 hex = "0.4.3"
+
+[dev-dependencies]
+criterion = "0.5.1"
+
+[[bench]]
+name = "ice_ice_benchmark"
+harness = false
+

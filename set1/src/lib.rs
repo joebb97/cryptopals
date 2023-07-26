@@ -24,7 +24,17 @@ pub fn fixed_xor(buf1: &[u8], buf2: &[u8]) -> anyhow::Result<Vec<u8>> {
     Ok(ret)
 }
 
-const ENGLISH_FREQ: &[f64] = &[
+pub fn fixed_xor_single(buf1: &[u8], single_char: u8) -> Vec<u8> {
+    buf1.iter().map(|b| b ^ single_char).collect()
+}
+
+pub fn fixed_xor_single_inplace(buf1: &mut [u8], single_char: u8) {
+    for b in buf1.iter_mut() {
+        *b ^= single_char;
+    }
+}
+
+const ENGLISH_FREQ: [f64; 26] = [
     0.08167, 0.01492, 0.02782, 0.04253, 0.12702, 0.02228, 0.02015, // A-G
     0.06094, 0.06966, 0.00153, 0.00772, 0.04025, 0.02406, 0.06749, // H-N
     0.07507, 0.01929, 0.00095, 0.05987, 0.06327, 0.09056, 0.02758, // O-U
@@ -61,99 +71,98 @@ fn get_chi2(bytes: &[u8]) -> f64 {
 
 // based on https://github.com/Lukasa/cryptopals/blob/master/cryptopals/challenge_one/three.py
 pub fn englishness(cand_plaintext: &[u8]) -> f64 {
-    let byte_counts = cand_plaintext.iter().fold([0_u32; 256], |mut acc, x| {
+    let mut byte_counts = [0_u32; 256];
+    for x in cand_plaintext.iter() {
         let mut c = char::from(*x);
         if c.is_ascii_uppercase() {
             c.make_ascii_lowercase();
             let idx = u8::try_from(c).unwrap(); // won't panic since we check ascii uppercase
-            acc[idx as usize] += 1;
-            return acc;
+            byte_counts[idx as usize] += 1;
+            continue;
         }
-        acc[*x as usize] += 1;
-        acc
-    });
+        byte_counts[*x as usize] += 1;
+    }
     let total_characters = cand_plaintext.len() as u32;
-    byte_counts
-        .iter()
-        .enumerate()
-        .map(|(idx, val)| {
-            if (97..=122).contains(&idx) {
-                let idx = idx - 97;
-                let freq = ENGLISH_FREQ[idx];
-                let a = (freq * (*val as f64 / total_characters as f64)).sqrt();
-                return a;
-            }
-            0.0
-        })
-        .sum()
+    let mut total = 0.;
+    for idx in 97..=122 {
+        let freq = ENGLISH_FREQ[idx - 97];
+        let val = byte_counts[idx];
+        let a = (freq * (val as f64 / total_characters as f64)).sqrt();
+        total += a;
+    }
+    total
+    // byte_counts
+    //     .iter()
+    //     .enumerate()
+    //     .map(|(idx, val)| {
+    //         if (97..=122).contains(&idx) {
+    //             let idx = idx - 97;
+    //             let freq = ENGLISH_FREQ[idx];
+    //             let a = (freq * (*val as f64 / total_characters as f64)).sqrt();
+    //             return a;
+    //         }
+    //         0.0
+    //     })
+    //     .sum()
 }
 
 // Find Single Byte Key
-pub fn single_byte_key_decrypt(cipher: &[u8]) -> anyhow::Result<(f64, char, Vec<u8>)> {
+pub fn single_byte_key_decrypt(cipher: &[u8]) -> (f64, char, Vec<u8>) {
+    #[derive(Default)]
     struct RetData {
         cand_plaintext: Vec<u8>,
         frequency_score: f64,
         cand_char: char,
     }
 
-    let best: Result<Vec<RetData>, _> = (0..=255)
-        .map(|cand| {
-            let cand_char = char::from(cand);
+    let mut best: Option<RetData> = None;
+    for cand in 0..=255 {
+        let cand_char = char::from(cand);
 
-            let cand_key = vec![cand; cipher.len()];
-            let cand_plaintext = fixed_xor(&cand_key, cipher)?;
+        // let cand_key = vec![cand; cipher.len()];
+        let cand_plaintext = fixed_xor_single(cipher, cand);
 
-            let frequency_score: f64 = englishness(&cand_plaintext);
-
-            anyhow::Ok(RetData {
-                cand_plaintext,
-                frequency_score,
-                cand_char,
-            })
-        })
-        .collect();
-    let mut best: Vec<RetData> = best?;
-    best.sort_by(|a, b| b.frequency_score.total_cmp(&a.frequency_score));
-    // if cfg!(debug_assertions) {
-    //     best.iter().rev().for_each(|item| {
-    //         let copy = item.cand_plaintext.clone();
-    //         let the_string = String::from_utf8(copy);
-    //         println!(
-    //             "{:?} yields {:?} with {:?}",
-    //             item.cand_char, item.frequency_score, the_string
-    //         )
-    //     });
-    // }
-    let mut best_idx = 0;
-    if (best[0].frequency_score - best[1].frequency_score).abs() < f64::EPSILON {
-        let lowercase_counts = best[0]
-            .cand_plaintext
-            .iter()
-            .zip(best[1].cand_plaintext.iter())
-            .fold((0, 0), |acc, (left_byte, right_byte)| {
-                (
-                    if char::from(*left_byte).is_lowercase() {
-                        acc.0 + 1
+        let frequency_score: f64 = englishness(&cand_plaintext);
+        let cand = RetData {
+            cand_plaintext,
+            frequency_score,
+            cand_char,
+        };
+        best = match best {
+            None => Some(cand),
+            Some(top) => match top.frequency_score.total_cmp(&frequency_score) {
+                std::cmp::Ordering::Less => Some(cand),
+                std::cmp::Ordering::Equal => {
+                    let lowercase_counts = top
+                        .cand_plaintext
+                        .iter()
+                        .zip(cand.cand_plaintext.iter())
+                        .fold((0, 0), |acc, (left_byte, right_byte)| {
+                            (
+                                if char::from(*left_byte).is_lowercase() {
+                                    acc.0 + 1
+                                } else {
+                                    acc.0
+                                },
+                                if char::from(*right_byte).is_lowercase() {
+                                    acc.1 + 1
+                                } else {
+                                    acc.1
+                                },
+                            )
+                        });
+                    Some(if lowercase_counts.0 > lowercase_counts.1 {
+                        top
                     } else {
-                        acc.0
-                    },
-                    if char::from(*right_byte).is_lowercase() {
-                        acc.1 + 1
-                    } else {
-                        acc.1
-                    },
-                )
-            });
-        if lowercase_counts.0 < lowercase_counts.1 {
-            best_idx = 1;
-        }
+                        cand
+                    })
+                }
+                _ => Some(top),
+            },
+        };
     }
-    let ret = (
-        best[best_idx].frequency_score,
-        best[best_idx].cand_char,
-        best[best_idx].cand_plaintext.clone(),
-    );
-    Ok(ret)
+    let best = best.unwrap();
+    (best.frequency_score, best.cand_char, best.cand_plaintext)
 }
 
 // Challenge 4
@@ -162,11 +171,7 @@ pub fn detect_single_character_xor() -> (f64, char, Vec<u8>) {
     lines
         .map(|line| {
             let line = hex::decode(line).unwrap();
-            single_byte_key_decrypt(&line).unwrap()
-            // let clone = ans.2.clone();
-            // if let Ok(cand) = String::from_utf8(clone) {
-            //     println!("{:?} {:?}", ans.0, cand);
-            // }
+            single_byte_key_decrypt(&line)
         })
         .max_by(|a, b| (a.0).total_cmp(&b.0))
         .unwrap()
@@ -201,8 +206,7 @@ mod tests {
         let ans = single_byte_key_decrypt(
             &hex::decode(b"1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736")
                 .unwrap(),
-        )
-        .unwrap();
+        );
         let as_string = String::from_utf8(ans.2).unwrap();
         assert_eq!(as_string, "Cooking MC's like a pound of bacon");
         // technically x and X have the same score, but X looks nicer and just happens to win

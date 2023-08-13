@@ -1,5 +1,5 @@
 use anyhow::bail;
-use base64::engine::general_purpose;
+use base64::{engine::general_purpose, Engine as _};
 use std::io::Write;
 
 // Challenge 1
@@ -91,34 +91,19 @@ pub fn englishness(cand_plaintext: &[u8]) -> f64 {
         total += a;
     }
     total
-    // byte_counts
-    //     .iter()
-    //     .enumerate()
-    //     .map(|(idx, val)| {
-    //         if (97..=122).contains(&idx) {
-    //             let idx = idx - 97;
-    //             let freq = ENGLISH_FREQ[idx];
-    //             let a = (freq * (*val as f64 / total_characters as f64)).sqrt();
-    //             return a;
-    //         }
-    //         0.0
-    //     })
-    //     .sum()
 }
 
 // Find Single Byte Key
-pub fn single_byte_key_decrypt(cipher: &[u8]) -> (f64, char, Vec<u8>) {
+pub fn single_byte_key_decrypt(cipher: &[u8]) -> (f64, u8, Vec<u8>) {
     #[derive(Default)]
     struct RetData {
         cand_plaintext: Vec<u8>,
         frequency_score: f64,
-        cand_char: char,
+        cand_byte: u8,
     }
 
     let mut best: Option<RetData> = None;
     for cand in 0..=255 {
-        let cand_char = char::from(cand);
-
         // let cand_key = vec![cand; cipher.len()];
         let cand_plaintext = fixed_xor_single(cipher, cand);
 
@@ -126,7 +111,7 @@ pub fn single_byte_key_decrypt(cipher: &[u8]) -> (f64, char, Vec<u8>) {
         let cand = RetData {
             cand_plaintext,
             frequency_score,
-            cand_char,
+            cand_byte: cand,
         };
         best = match best {
             None => Some(cand),
@@ -162,11 +147,11 @@ pub fn single_byte_key_decrypt(cipher: &[u8]) -> (f64, char, Vec<u8>) {
         };
     }
     let best = best.unwrap();
-    (best.frequency_score, best.cand_char, best.cand_plaintext)
+    (best.frequency_score, best.cand_byte, best.cand_plaintext)
 }
 
 // Challenge 4
-pub fn detect_single_character_xor() -> (f64, char, Vec<u8>) {
+pub fn detect_single_character_xor() -> (f64, u8, Vec<u8>) {
     let lines = include_str!("challenge4-data.txt").lines();
     lines
         .map(|line| {
@@ -175,6 +160,111 @@ pub fn detect_single_character_xor() -> (f64, char, Vec<u8>) {
         })
         .max_by(|a, b| (a.0).total_cmp(&b.0))
         .unwrap()
+}
+
+// Challenge 5
+pub fn repeating_key_xor(plaintext: &[u8], key: &[u8]) -> Vec<u8> {
+    let mut ret = Vec::from(plaintext);
+    for (i, b) in ret.iter_mut().enumerate() {
+        *b ^= key[i % key.len()];
+    }
+    ret
+}
+
+/// Run selection sort outer loop k times.
+/// Although we accept a usize, k is meant to be very small. Probably k < 10
+pub fn k_smallest<T: PartialOrd>(arr: &mut [T], k: usize) {
+    for start in 0..k {
+        let mut best = start;
+        for i in (start + 1)..arr.len() {
+            if arr[best] > arr[i] {
+                best = i
+            }
+        }
+        arr.swap(start, best)
+    }
+}
+
+// Challenge 6
+pub fn break_repeating_key_xor(ciphertext: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let mut distances = Vec::with_capacity(ciphertext.len());
+    for keysize in 2..=40 {
+        let dist = score_keysize(ciphertext, keysize);
+        distances.push((dist, keysize));
+    }
+    // We can solve the challenge by actually just taking the smallest.
+    // I do this helper function because doing min on a vec of floats is annoying.
+    k_smallest(&mut distances, 1);
+    let keysize = distances[0].1;
+    let chunks = ciphertext.chunks(keysize);
+    let mut cand_key = Vec::with_capacity(chunks.len());
+    let mut message = Vec::with_capacity(ciphertext.len());
+    for idx in 0..keysize {
+        let mut block = Vec::with_capacity(chunks.len());
+        for chunk in chunks.clone() {
+            if idx < chunk.len() {
+                block.push(chunk[idx]);
+            }
+            // let single = single_byte_key_decrypt(chunk).1;
+            // cand_key.push(single);
+        }
+        let single = single_byte_key_decrypt(&block).1;
+        cand_key.push(single);
+        message.append(&mut block);
+    }
+    let plaintext = repeating_key_xor(ciphertext, &cand_key);
+    (cand_key, plaintext)
+}
+
+fn score_keysize(cipher: &[u8], keysize: usize) -> f64 {
+    let mut chunks = cipher.chunks(keysize);
+    let total = chunks.len();
+    let mut score = 0.;
+    // To be honest I totally cheated here with
+    // https://www.gkbrk.com/wiki/cryptopals-solutions/#6---break-repeating-key-xor
+    //
+    // Since the fucking instructions on the cryptopals site or step 3 do not actually work
+    // when executed as instructed.
+    //
+    // The instructions imply changing this "while let" to be an "if let", i.e only executed once
+    while let (Some(c1), Some(c2)) = (chunks.next(), chunks.next()) {
+        let hamming_distance = hamming_distance(c1, c2);
+        score += f64::from(hamming_distance);
+    }
+    score /= keysize as f64;
+    // The instructions also do not imply doing this whatsoever. People just happen to have
+    // this in their solutions.
+    score /= (total - 1) as f64;
+    score
+}
+
+pub fn hamming_distance(b1: &[u8], b2: &[u8]) -> u32 {
+    let mut accum = 0;
+    for (b1, b2) in b1.iter().zip(b2) {
+        let mut dist = 0;
+        let mut val = b1 ^ b2;
+        loop {
+            if val == 0 {
+                break;
+            }
+            val = val & (val - 1);
+            dist += 1;
+        }
+        accum += dist;
+    }
+    accum
+}
+
+pub fn challenge6_data() -> Vec<u8> {
+    // Decoding with newlines works in python, but not with the base64 crate
+    let dat: Vec<u8> = include_bytes!("challenge6-data.txt")
+        .iter()
+        .copied()
+        .filter(|c| *c != b'\n')
+        .collect();
+    general_purpose::STANDARD
+        .decode(dat)
+        .expect("should decode")
 }
 
 #[cfg(test)]
@@ -209,8 +299,7 @@ mod tests {
         );
         let as_string = String::from_utf8(ans.2).unwrap();
         assert_eq!(as_string, "Cooking MC's like a pound of bacon");
-        // technically x and X have the same score, but X looks nicer and just happens to win
-        assert_eq!(ans.1, 'X');
+        assert_eq!(ans.1, b'X');
     }
 
     #[test]
@@ -218,6 +307,35 @@ mod tests {
         let best = detect_single_character_xor();
         let as_string = String::from_utf8(best.2).unwrap();
         assert_eq!(as_string, "Now that the party is jumping\n");
-        assert_eq!(best.1, '5');
+        assert_eq!(best.1, b'5');
+    }
+
+    #[test]
+    fn test_repeating_key_xor() {
+        let plaintext =
+            b"Burning 'em, if you ain't quick and nimble\nI go crazy when I hear a cymbal";
+        let cipher = repeating_key_xor(plaintext, b"ICE");
+        let expected = hex::decode(b"0b3637272a2b2e63622c2e69692a23693a2a3c6324202d623d63343c2a26226324272765272a282b2f20430a652e2c652a3124333a653e2b2027630c692b20283165286326302e27282f").unwrap();
+        assert_eq!(cipher, expected);
+    }
+
+    #[test]
+    fn test_hamming_distance() {
+        assert_eq!(hamming_distance(b"this is a test", b"wokka wokka!!!"), 37)
+    }
+
+    #[test]
+    fn test_k_smallest() {
+        let mut test = [5., 2., 3., 4., 88., 0., f64::NAN];
+        k_smallest(&mut test, 4);
+        assert_eq!(test[0..3], [0., 2., 3.]);
+    }
+
+    #[test]
+    fn test_break_repeating_key_xor() {
+        let (key, plaintext) = break_repeating_key_xor(&challenge6_data());
+        assert_eq!(key, b"Terminator X: Bring the noise");
+        let correct_plaintext = include_bytes!("challenge6-soln.txt");
+        assert_eq!(plaintext, correct_plaintext);
     }
 }

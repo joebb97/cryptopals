@@ -17,3 +17,6 @@ criterion = "0.5.1"
 name = "ice_ice_benchmark"
 harness = false
 
+[[bench]]
+name = "break_repeating_key_xor"
+harness = false

@@ -1,7 +1,8 @@
+use aes::cipher::{generic_array::GenericArray, BlockCipher, BlockDecrypt, BlockEncrypt, KeyInit};
+use aes::Aes128Dec;
 use anyhow::bail;
 use base64::{engine::general_purpose, Engine as _};
 use std::io::Write;
-
 // Challenge 1
 pub fn hex_to_base64(hex: &[u8]) -> anyhow::Result<Vec<u8>> {
     let decoded = hex::decode(hex)?;
@@ -94,7 +95,7 @@ pub fn englishness(cand_plaintext: &[u8]) -> f64 {
 }
 
 // Find Single Byte Key
-pub fn single_byte_key_decrypt(cipher: &[u8]) -> (f64, u8, Vec<u8>) {
+pub fn single_byte_key_decrypt(ciphertext: &[u8]) -> (f64, u8, Vec<u8>) {
     #[derive(Default)]
     struct RetData {
         cand_plaintext: Vec<u8>,
@@ -105,7 +106,7 @@ pub fn single_byte_key_decrypt(cipher: &[u8]) -> (f64, u8, Vec<u8>) {
     let mut best: Option<RetData> = None;
     for cand in 0..=255 {
         // let cand_key = vec![cand; cipher.len()];
-        let cand_plaintext = fixed_xor_single(cipher, cand);
+        let cand_plaintext = fixed_xor_single(ciphertext, cand);
 
         let frequency_score: f64 = englishness(&cand_plaintext);
         let cand = RetData {
@@ -255,16 +256,37 @@ pub fn hamming_distance(b1: &[u8], b2: &[u8]) -> u32 {
     accum
 }
 
+pub fn aes_ecb_mode_decrypt(key: [u8; 16], ciphertext: &mut [u8]) -> Vec<u8> {
+    let key = GenericArray::from(key);
+    let cipher = Aes128Dec::new(&key);
+    let mut block = GenericArray::from([0u8; 16]);
+    let mut ret = ciphertext.clone();
+    cipher.decrypt_blocks(&mut blocks);
+}
+
 pub fn challenge6_data() -> Vec<u8> {
-    // Decoding with newlines works in python, but not with the base64 crate
-    let dat: Vec<u8> = include_bytes!("challenge6-data.txt")
-        .iter()
-        .copied()
-        .filter(|c| *c != b'\n')
-        .collect();
-    general_purpose::STANDARD
-        .decode(dat)
-        .expect("should decode")
+    challenge_data!("challenge6-data.txt")
+}
+
+pub fn challenge7_data() -> Vec<u8> {
+    challenge_data!("challenge7-data.txt")
+}
+
+#[macro_export]
+macro_rules! challenge_data {
+    ($fname:literal) => {
+        // Decoding with newlines works in python, but not with the base64 crate
+        {
+            let dat: Vec<u8> = include_bytes!($fname)
+                .iter()
+                .copied()
+                .filter(|c| *c != b'\n')
+                .collect();
+            general_purpose::STANDARD
+                .decode(dat)
+                .expect("should decode")
+        }
+    };
 }
 
 #[cfg(test)]

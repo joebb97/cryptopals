@@ -1,7 +1,7 @@
 use aes::cipher::{generic_array::GenericArray, BlockDecrypt, KeyInit};
 use aes::Aes128Dec;
 use anyhow::bail;
-use base64::{engine::general_purpose, Engine as _};
+use base64::engine::general_purpose;
 use std::io::Write;
 // Challenge 1
 pub fn hex_to_base64(hex: &[u8]) -> anyhow::Result<Vec<u8>> {
@@ -261,38 +261,32 @@ pub fn aes_ecb_mode_decrypt(key: [u8; 16], ciphertext: &mut [u8]) {
     let key = GenericArray::from(key);
     let cipher = Aes128Dec::new(&key);
     for chunk in ciphertext.chunks_mut(BLOCK_SIZE) {
-        let mut block = GenericArray::from_mut_slice(chunk);
-        cipher.decrypt_block(&mut block);
+        let block = GenericArray::from_mut_slice(chunk);
+        cipher.decrypt_block(block);
     }
-}
-
-pub fn challenge6_data() -> Vec<u8> {
-    challenge_data!("challenge6-data.txt")
-}
-
-pub fn challenge7_data() -> Vec<u8> {
-    challenge_data!("challenge7-data.txt")
-}
-
-#[macro_export]
-macro_rules! challenge_data {
-    ($fname:literal) => {
-        // Decoding with newlines works in python, but not with the base64 crate
-        {
-            let dat: Vec<u8> = include_bytes!($fname)
-                .iter()
-                .copied()
-                .filter(|c| *c != b'\n')
-                .collect();
-            general_purpose::STANDARD
-                .decode(dat)
-                .expect("should decode")
-        }
-    };
 }
 
 #[cfg(test)]
 mod tests {
+
+    use base64::{engine::general_purpose, Engine as _};
+
+    #[macro_export]
+    macro_rules! challenge_data {
+        ($fname:literal) => {
+            // Decoding with newlines works in python, but not with the base64 crate
+            {
+                let dat: Vec<u8> = include_bytes!($fname)
+                    .iter()
+                    .copied()
+                    .filter(|c| *c != b'\n')
+                    .collect();
+                general_purpose::STANDARD
+                    .decode(dat)
+                    .expect("should decode")
+            }
+        };
+    }
     use crate::*;
 
     #[test]
@@ -357,7 +351,7 @@ mod tests {
 
     #[test]
     fn test_break_repeating_key_xor() {
-        let (key, plaintext) = break_repeating_key_xor(&challenge6_data());
+        let (key, plaintext) = break_repeating_key_xor(&challenge_data!("challenge6-data.txt"));
         assert_eq!(key, b"Terminator X: Bring the noise");
         let correct_plaintext = include_bytes!("challenge6-soln.txt");
         assert_eq!(plaintext, correct_plaintext);
@@ -366,7 +360,7 @@ mod tests {
     #[test]
     fn test_aes_in_ecb_mode() {
         let key = b"YELLOW SUBMARINE";
-        let mut ciphertext = challenge7_data();
+        let mut ciphertext = challenge_data!("challenge7-data.txt");
         aes_ecb_mode_decrypt(*key, &mut ciphertext);
         let soln_data = include_bytes!("challenge7-soln.txt");
         let without_padding = &ciphertext[..ciphertext.len() - 4];

@@ -1,4 +1,4 @@
-use aes::cipher::{generic_array::GenericArray, BlockCipher, BlockDecrypt, BlockEncrypt, KeyInit};
+use aes::cipher::{generic_array::GenericArray, BlockDecrypt, KeyInit};
 use aes::Aes128Dec;
 use anyhow::bail;
 use base64::{engine::general_purpose, Engine as _};
@@ -256,12 +256,14 @@ pub fn hamming_distance(b1: &[u8], b2: &[u8]) -> u32 {
     accum
 }
 
-pub fn aes_ecb_mode_decrypt(key: [u8; 16], ciphertext: &mut [u8]) -> Vec<u8> {
+pub fn aes_ecb_mode_decrypt(key: [u8; 16], ciphertext: &mut [u8]) {
+    const BLOCK_SIZE: usize = 16;
     let key = GenericArray::from(key);
     let cipher = Aes128Dec::new(&key);
-    let mut block = GenericArray::from([0u8; 16]);
-    let mut ret = ciphertext.clone();
-    cipher.decrypt_blocks(&mut blocks);
+    for chunk in ciphertext.chunks_mut(BLOCK_SIZE) {
+        let mut block = GenericArray::from_mut_slice(chunk);
+        cipher.decrypt_block(&mut block);
+    }
 }
 
 pub fn challenge6_data() -> Vec<u8> {
@@ -359,5 +361,17 @@ mod tests {
         assert_eq!(key, b"Terminator X: Bring the noise");
         let correct_plaintext = include_bytes!("challenge6-soln.txt");
         assert_eq!(plaintext, correct_plaintext);
+    }
+
+    #[test]
+    fn test_aes_in_ecb_mode() {
+        let key = b"YELLOW SUBMARINE";
+        let mut ciphertext = challenge7_data();
+        aes_ecb_mode_decrypt(*key, &mut ciphertext);
+        let soln_data = include_bytes!("challenge7-soln.txt");
+        let without_padding = &ciphertext[..ciphertext.len() - 4];
+        assert_eq!(without_padding, soln_data);
+        let padding = b"\x04\x04\x04\x04";
+        assert_eq!(ciphertext[ciphertext.len() - 4..], *padding)
     }
 }

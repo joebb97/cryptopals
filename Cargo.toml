@@ -5,3 +5,9 @@ members = [
     "set1",
     "set2",
 ]
+
+[workspace.dependencies]
+aes = "0.8.3"
+anyhow = "1.0.70"
+base64 = "0.21.0"
+hex = "0.4.3"

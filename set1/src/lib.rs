@@ -4,6 +4,8 @@ use anyhow::bail;
 use base64::engine::general_purpose;
 use std::collections::HashSet;
 use std::io::Write;
+
+pub const AES_128_BLOCK_SIZE: usize = 16;
 // Challenge 1
 pub fn hex_to_base64(hex: &[u8]) -> anyhow::Result<Vec<u8>> {
     let decoded = hex::decode(hex)?;
@@ -24,6 +26,16 @@ pub fn fixed_xor(buf1: &[u8], buf2: &[u8]) -> anyhow::Result<Vec<u8>> {
         .map(|(b1, b2)| b1 ^ b2)
         .collect();
     Ok(ret)
+}
+
+pub fn fixed_xor_inplace(buf1: &mut [u8], buf2: &[u8]) -> anyhow::Result<()> {
+    if buf1.len() != buf2.len() {
+        bail!("Buffers are not the same fixed size {:?} {:?}", buf1, buf2);
+    }
+    buf1.iter_mut()
+        .zip(buf2.iter())
+        .for_each(|(b1, b2)| *b1 ^= b2);
+    Ok(())
 }
 
 pub fn fixed_xor_single(buf1: &[u8], single_char: u8) -> Vec<u8> {
@@ -258,11 +270,10 @@ pub fn hamming_distance(b1: &[u8], b2: &[u8]) -> u32 {
 }
 
 // Challenge 7
-pub fn aes_ecb_mode_decrypt(key: [u8; 16], ciphertext: &mut [u8]) {
-    const BLOCK_SIZE: usize = 16;
+pub fn aes_ecb_mode_decrypt(ciphertext: &mut [u8], key: [u8; AES_128_BLOCK_SIZE]) {
     let key = GenericArray::from(key);
     let cipher = Aes128Dec::new(&key);
-    for chunk in ciphertext.chunks_mut(BLOCK_SIZE) {
+    for chunk in ciphertext.chunks_mut(AES_128_BLOCK_SIZE) {
         let block = GenericArray::from_mut_slice(chunk);
         cipher.decrypt_block(block);
     }
@@ -275,7 +286,7 @@ pub fn detect_aes_ecb() -> Vec<String> {
         .filter(|line| {
             let ciphertext = hex::decode(line).unwrap();
             let mut blocks: HashSet<&[u8]> = HashSet::new();
-            for block in ciphertext.chunks(16) {
+            for block in ciphertext.chunks(AES_128_BLOCK_SIZE) {
                 if blocks.contains(block) {
                     return true;
                 }
@@ -287,27 +298,27 @@ pub fn detect_aes_ecb() -> Vec<String> {
         .collect::<Vec<String>>()
 }
 
+#[macro_export]
+macro_rules! challenge_data {
+    ($fname:literal) => {
+        // Decoding with newlines works in python, but not with the base64 crate
+        {
+            use base64::{engine::general_purpose, Engine as _};
+            let dat: Vec<u8> = include_bytes!($fname)
+                .iter()
+                .copied()
+                .filter(|c| *c != b'\n')
+                .collect();
+            general_purpose::STANDARD
+                .decode(dat)
+                .expect("should decode")
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
 
-    use base64::{engine::general_purpose, Engine as _};
-
-    #[macro_export]
-    macro_rules! challenge_data {
-        ($fname:literal) => {
-            // Decoding with newlines works in python, but not with the base64 crate
-            {
-                let dat: Vec<u8> = include_bytes!($fname)
-                    .iter()
-                    .copied()
-                    .filter(|c| *c != b'\n')
-                    .collect();
-                general_purpose::STANDARD
-                    .decode(dat)
-                    .expect("should decode")
-            }
-        };
-    }
     use crate::*;
 
     #[test]
@@ -320,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fixed_or() {
+    fn test_fixed_xor() {
         let out = fixed_xor(
             &hex::decode(b"1c0111001f010100061a024b53535009181c").unwrap(),
             &hex::decode(b"686974207468652062756c6c277320657965").unwrap(),
@@ -328,6 +339,18 @@ mod tests {
         .unwrap();
         let ans = hex::decode(b"746865206b696420646f6e277420706c6179").unwrap();
         assert_eq!(out, ans)
+    }
+
+    #[test]
+    fn test_fixed_or_inplace() {
+        let mut data = hex::decode(b"1c0111001f010100061a024b53535009181c").unwrap();
+        fixed_xor_inplace(
+            &mut data,
+            &hex::decode(b"686974207468652062756c6c277320657965").unwrap(),
+        )
+        .unwrap();
+        let ans = hex::decode(b"746865206b696420646f6e277420706c6179").unwrap();
+        assert_eq!(data, ans)
     }
 
     #[test]
@@ -382,7 +405,7 @@ mod tests {
     fn test_aes_in_ecb_mode() {
         let key = b"YELLOW SUBMARINE";
         let mut ciphertext = challenge_data!("challenge7-data.txt");
-        aes_ecb_mode_decrypt(*key, &mut ciphertext);
+        aes_ecb_mode_decrypt(&mut ciphertext, *key);
         let soln_data = include_bytes!("challenge7-soln.txt");
         let without_padding = &ciphertext[..ciphertext.len() - 4];
         assert_eq!(without_padding, soln_data);

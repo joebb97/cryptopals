@@ -7,3 +7,5 @@ edition = "2021"
 
 [dependencies]
 set1 = { path = "../set1" }
+aes = { workspace = true }
+base64 = { workspace = true }

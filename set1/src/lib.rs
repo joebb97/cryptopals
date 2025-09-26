@@ -1,5 +1,6 @@
+use aes::cipher::BlockEncrypt;
 use aes::cipher::{generic_array::GenericArray, BlockDecrypt, KeyInit};
-use aes::Aes128Dec;
+use aes::{Aes128Dec, Aes128Enc};
 use anyhow::bail;
 use base64::engine::general_purpose;
 use std::collections::HashSet;
@@ -279,23 +280,48 @@ pub fn aes_ecb_mode_decrypt(ciphertext: &mut [u8], key: [u8; AES_128_BLOCK_SIZE]
     }
 }
 
+pub fn aes_ecb_mode_encrypt(plaintext: &mut [u8], key: [u8; AES_128_BLOCK_SIZE]) {
+    let key = GenericArray::from(key);
+    let cipher = Aes128Enc::new(&key);
+    for chunk in plaintext.chunks_mut(AES_128_BLOCK_SIZE) {
+        let block = GenericArray::from_mut_slice(chunk);
+        cipher.encrypt_block(block);
+    }
+}
+
 // Challenge 8
 pub fn detect_aes_ecb() -> Vec<String> {
     include_str!("challenge8-data.txt")
         .lines()
         .filter(|line| {
             let ciphertext = hex::decode(line).unwrap();
-            let mut blocks: HashSet<&[u8]> = HashSet::new();
-            for block in ciphertext.chunks(AES_128_BLOCK_SIZE) {
-                if blocks.contains(block) {
-                    return true;
-                }
-                blocks.insert(block);
-            }
-            false
+            has_aes_ecb_repetitions(&ciphertext)
         })
         .map(|s| s.to_string())
         .collect::<Vec<String>>()
+}
+
+pub fn has_aes_ecb_repetitions(ciphertext: &[u8]) -> bool {
+    let mut blocks: HashSet<&[u8]> = HashSet::new();
+    for block in ciphertext.chunks(AES_128_BLOCK_SIZE) {
+        if blocks.contains(block) {
+            return true;
+        }
+        blocks.insert(block);
+    }
+    false
+}
+
+pub fn count_aes_ecb_repetitions(ciphertext: &[u8]) -> u64 {
+    let mut repeats = 0;
+    let mut blocks: HashSet<&[u8]> = HashSet::new();
+    for block in ciphertext.chunks(AES_128_BLOCK_SIZE) {
+        if blocks.contains(block) {
+            repeats += 1;
+        }
+        blocks.insert(block);
+    }
+    repeats
 }
 
 #[macro_export]
